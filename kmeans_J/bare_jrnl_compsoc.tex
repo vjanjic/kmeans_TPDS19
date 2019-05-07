@@ -937,6 +937,7 @@ As for the data communication needed, there is one more bottleneck process (line
 $$\mathbf{T'}_{comm}: \frac{k}{m_{group}}/R+\frac{n*m_{group}}{m}((1+k)*d))/M $$
 
 \subsection{Level 3 - DataFlow and Centroids and Dimensions Partition}
+\label{sec:level3partition}
 
 \begin{algorithm}
 \caption{Parallel $k$-$means$ for $k$-scale and $d$-scale}
@@ -1001,10 +1002,19 @@ $$\mathbf{C''}_1:\ d(1+k+k)+k \leq m*LDM  $$
 $\mathbf{C''}_1$ is the breakthrough contribution over other state-of-the-art work \cite{bender2015k}: the total amount of $d*k$ is not limited by a single or shared memory size any more. It is fully scalable by the total number of processors applied ($m$). In a modern supercomputer, this value can be large-scaled up-to tens of millions when needed.  
 
 Considering performance, note that $m'_{group}$ CGs (64 CPEs in each) in one group should read the same sample simultaneously. In another aspect, each CPE only needs to read a partial of the given $d$-dimension of original data sample together with  a partial of $k$ centroids similarly as before, then we obtain a similar reading time:  
-$$\mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B$$
+%$$\mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B$$
+\begin{equation}
+  \label{eq:tread}
+  $$\mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B
+\end{equation}
+
 
 Comparing against the above cases, multiple CGs in CG groups allocated in different many-core processors need communication to update centroids through MPI. Given the bandwidth of network communication through MPI to be $M$, the cost between multiple CG groups can be formalized as:
-$$\mathbf{T''}_{comm}: (\frac{k}{m'_{group}}+\frac{n*m'_{group}}{m}((1+k)*d))/M $$
+%$$\mathbf{T''}_{comm}: (\frac{k}{m'_{group}}+\frac{n*m'_{group}}{m}((1+k)*d))/M $$
+\begin{equation}
+  \label{eq:tcomm}
+  \mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B
+\end{equation}
 
 The network architecture of Sunway TaihuLight is a two-level fat tree. 256 computing nodes are connected via a customized inter-connection board, forming a \emph{super-node}. All super-nodes are connected with a central routing server. The intra super-node communication is more efficient than the inter super-node communication. Therefore, in order to improve the overall communication efficiency of our design, we should make a CG group located within a super-node if possible. 
 
@@ -1016,14 +1026,24 @@ As described in the background section,  \textit{Level 1} is based on the well-r
 The multi-level large-scale approaches together also give us the needed flexibility to handle both high dimensional and low dimensional dataset efficiently on supercomputer, which also breaks the limitation in current state-of-the-art design by Bender et al. \cite{bender2015k} which claims only efficient for dataset with larger than 100,000 dimensions. 
 
 \section{Auto-clustering Layer Design and Implementation}\label{auto-implementation}
-To efficiently process massive data without prior knowledge, we need an auto-learning layer to determine the optimal value of targeting centroids ($k$). Instead of predicting the optimal value before execution under limited computing resources, our supercomputing based large-scale approach can process all possible $k$ values in parallel within a reasonable time and then determine the actual optimal value by our evaluation function. In detail, we design and implement: 
+
+In Section~\ref{background_J}, we described a method to determine the optimal number of centroids ($k$) for the $k$-means algorithm on a given input set. This method is very useful in limited-resources settings, where we cannot run multiple instances of the $k$-means algorithm (for different $k$), but instead we need to determine the value of $k$ upfront. However, the method is still computationally expensive and, in the supercomputer settings, we have enough resources to run $n$ instances of $k$-means algorithm in parallel (for $k \in \{1,2,\dots,n\}$. We can then use a function similar to the one proposed in Section~\ref{background_J} for calculating radius $r(k)$ as an evaluation function to estimate the quality of solution that each instance of the $k$-means algorithm derives. This leaves us with two practical problems - how to automatically select the data partitioning method to process the workload when the value of $k$ changes and how to allocate resources of a supercomputer fo different instances of the $k$-means algorithm.
+%To efficiently process massive data without prior knowledge, we need an auto-learning layer to determine the optimal value of targeting centroids ($k$). Instead of predicting the optimal value before execution under limited computing resources, our supercomputing based large-scale approach can process all possible $k$ values in parallel within a reasonable time and then determine the actual optimal value by our evaluation function. In detail, we design and implement: 
 \subsection{Self-aware Auto Dataflow Partition} 
 A self-aware method to auto partition dataflow into 3 levels based on the targeting $k$ values. This method is mainly guided by the scalability of each level of data partitioning. Based on the limitations presented in formulations ($\mathbf{C}_1,\mathbf{C'}_1,\mathbf{C''}_1$) above, we can easy compute the range of possible $k$ values for each level: $k \leq \frac{LDM-d}{1+2d}$ for level-1, $k \leq \frac{64LDM-d}{1+2d}$ for level-2 and $k \leq \frac{m*LDM-d}{1+2d}$ for level-3. By concatenating the ranges, we obtain the self-aware 3-stage roofline model to guide the data partitioning as shown in figure~\ref{roofline}.
 
-\subsection{Fairness Resource Allocation and Task Scheduler} 
-A fairness resource allocation method to run the heterogeneous workflows on the many-core supercomputer in parallel and keep load balancing. This method is mainly guided by the difference from performance of each data partitioning level. Instead of an easy roofline model as above based on the boundary of scalability, the performance difference coming from pipeline reading, communication and computation time with non-deterministic number of iterations  can not be easily formulated. 
+\subsection{Fairness Resource Allocation and Task Scheduler}
+From the discussion about the self-aware auto dataflow partitioning, we can observe that we will have different paritioning of the data for different values of $k$, which also implies there will be different computational costs (and also different degrees of parallelism). In Section~\ref{sec:level3partition}, we showed the costs of reading (equation \ref{eq:tread}), communication (equation \ref{eq:tcomm}) and computation (equation \ref{eq:tcomp}) for a single instance of the $k$-means algorithm with 3-level partitioning of data. We can see that these costs depend on the value of $k$ (the number of clusters), $m$ (the number of allocated CPEs) and $m'_{group}$ (the number of CGs grouped together to partition the $k$ centroids). Therefore, if we estimate a total cost of one instance of the $k$-means algorithm as $T''=T''_{read}+T''_{comm}+T''_{comp}$, then $T''$ can be seen, for a fixed $k$,  as a function of $m$ and $m'_{group}$ ($T''=T''_k(m,m'_{group}))$. If we denote by $m_k$ and $m_k'_{group}$ the nubmer CPEs and the number of CGs grouped together to the $k$-means instance with fixed $k$, then the problem of allocating resources for all instances of the $k$-means problem, for $k\in\{1,2,\dots,n\}$ can be posed as a linear programming problem of choosing ($\{m_1,m_2,\dots,m_{n-1}\}$), with $m_i \in \{1,2,\dots,M\}$ and $\sum_{i=1}^{n-1}m_i \leq M$ ($M$ being a total number of CPEs) and $\{m_1'_{group}, m_2'_{group}, \dots, m_{n-1}'_{group}\}$ such that
+
+$$\sum_{i=1}^{n-1} T''_i(m_i,m_i'_{group})$$
+
+achieves minimum.
+
+
+
+%A fairness resource allocation method to run the heterogeneous workflows on the many-core supercomputer in parallel and keep load balancing. This method is mainly guided by the difference from performance of each data partitioning level. Instead of an easy roofline model as above based on the boundary of scalability, the performance difference coming from pipeline reading, communication and computation time with non-deterministic number of iterations  can not be easily formulated. 
     
-To achieve efficient resource allocation, we apply empirical approach to determine the number of reserved processors (from only several CPEs in one core group to even multiple distributed nodes) for each task. We launch tasks to processors proportional to their targeting number of centroids ($k$) to keep load balancing. For example, a group of processors will only launch one task if its $k = \frac{n}{2}$, while tasks with $k = n-1$ and $k=2$ will be launched to another group of processors.
+%To achieve efficient resource allocation, we apply empirical approach to determine the number of reserved processors (from only several CPEs in one core group to even multiple distributed nodes) for each task. We launch tasks to processors proportional to their targeting number of centroids ($k$) to keep load balancing. For example, a group of processors will only launch one task if its $k = \frac{n}{2}$, while tasks with $k = n-1$ and $k=2$ will be launched to another group of processors.
 
 \subsection{Evaluation Function}
 A correct evaluation function to determine the optimal $k$.
