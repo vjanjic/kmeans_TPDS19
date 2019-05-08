@@ -1033,11 +1033,61 @@ In Section~\ref{background_J}, we described a method to determine the optimal nu
 A self-aware method to auto partition dataflow into 3 levels based on the targeting $k$ values. This method is mainly guided by the scalability of each level of data partitioning. Based on the limitations presented in formulations ($\mathbf{C}_1,\mathbf{C'}_1,\mathbf{C''}_1$) above, we can easy compute the range of possible $k$ values for each level: $k \leq \frac{LDM-d}{1+2d}$ for level-1, $k \leq \frac{64LDM-d}{1+2d}$ for level-2 and $k \leq \frac{m*LDM-d}{1+2d}$ for level-3. By concatenating the ranges, we obtain the self-aware 3-stage roofline model to guide the data partitioning as shown in figure~\ref{roofline}.
 
 \subsection{Fairness Resource Allocation and Task Scheduler}
-From the discussion about the self-aware auto dataflow partitioning, we can observe that we will have different paritioning of the data for different values of $k$, which also implies there will be different computational costs (and also different degrees of parallelism). In Section~\ref{sec:level3partition}, we showed the costs of reading (equation \ref{eq:tread}), communication (equation \ref{eq:tcomm}) and computation (equation \ref{eq:tcomp}) for a single instance of the $k$-means algorithm with 3-level partitioning of data. We can see that these costs depend on the value of $k$ (the number of clusters), $m$ (the number of allocated CPEs) and $m'_{group}$ (the number of CGs grouped together to partition the $k$ centroids). Therefore, if we estimate a total cost of one instance of the $k$-means algorithm as $T''=T''_{read}+T''_{comm}+T''_{comp}$, then $T''$ can be seen, for a fixed $k$,  as a function of $m$ and $m'_{group}$ ($T''=T''_k(m,m'_{group}))$. If we denote by $m_k$ and $m_k'_{group}$ the nubmer CPEs and the number of CGs grouped together to the $k$-means instance with fixed $k$, then the problem of allocating resources for all instances of the $k$-means problem, for $k\in\{1,2,\dots,n\}$ can be posed as a linear programming problem of choosing ($\{m_1,m_2,\dots,m_{n-1}\}$), with $m_i \in \{1,2,\dots,M\}$ and $\sum_{i=1}^{n-1}m_i \leq M$ ($M$ being a total number of CPEs) and $\{m_1'_{group}, m_2'_{group}, \dots, m_{n-1}'_{group}\}$ such that
+Dividing the resources of the supercomputer between the $n-1$
+instances of the $k$-means algorithm can be looked at as a scheduling
+problem, where we need to schedule $n-1$ heterogeneous tasks on a
+given set of resources. The tasks are heterogeneous because, for
+different $k$, $k$-means algorithm will do different partitioning of
+the data (see the previous section), different degree of parallelism
+(more parallelism for larger values of $k$) and different
+computational costs. Therefore, dividing the resources optimally
+between the instances of the algorithm will be suboptimal.
+Furthermore, it is not possible to statically
+compute the precise cost of executing one instance of the algorithm on
+a given set of resources because, in addition to the reading (equation
+\ref{eq:tread}) and communication (equation \ref{eq:tcomm}) time that
+can easily be estimated, there is also a computation time that depends
+on the number of iteration for a particular value of $k$ and a
+particular input, and this number cannot be computed
+statically. Therefore, we need to use some heuristics for resource
+allocation.
 
-$$\sum_{i=1}^{n-1} T''_i(m_i,m_i'_{group})$$
+The approach we take in this paper is to use a cost function,
+$T''(k,m,m'_{group})$, as an estimation of the cost of executing an
+instance of $k$-means on $m$ CPEs and $m'_{group}$ CPE groups for each
+centroid. The scheduling problem can then be seen as the optimisation
+problem of finding the minimum of the function
 
-achieves minimum.
+$$A(m_1,m_2,\dots,m_{n-1}, m_1'_{group}, m_2'_{group}, \dots
+m_{n-1}'_{group}) = \sum_{i_1}^{n-1} T''(i,m_i,m_i'_{group})$$
+
+with the constraints
+
+$$1 \leq m_i \leq p, \mbox{for } i \in \{1,\dots,n-1\},$$
+$$\sum_{i=1}^{n-1} m_i \leq p,$$
+$$0 \leq m_i'_{group} \leq \frac{p}{q}, mbox{for } i \in
+\{1,\dots,n-1\}$$
+$$ \sum_{i=1}^{n-1} m_i'_{group} = \frac{p}{q},$$
+where $p$ is the total number of CPEs and $q$ is the number of CPEs
+per group ($64$ in our case).
+
+
+
+
+
+
+%Since our aim is to execute, at the same time, $n-1$ instances of the $k$-means algorithm,
+%for each $k$ between $1$ and $n-1$, we need to find a way to divide
+%the resources of the supercomputer to efficiently execute all of these
+%computations. Different instances of the algorithm will have different
+%partitioning of the data (see Section~\ref{auto-implementation}),
+%different degrees of parallelism (more parallelism for larger values
+%of $k$) and different computational cost. Therefore, the problem of
+%allocating resources for these instances can be seen as for . In Section~\ref{sec:level3partition}, we showed the costs of reading (equation \ref{eq:tread}), communication (equation \ref{eq:tcomm}) and computation (equation \ref{eq:tcomp}) for a single instance of the $k$-means algorithm with 3-level partitioning of data. We can see that these costs depend on the value of $k$ (the number of clusters), $m$ (the number of allocated CPEs) and $m'_{group}$ (the number of CGs grouped together to partition the $k$ centroids). Therefore, if we estimate a total cost of one instance of the $k$-means algorithm as $T''=T''_{read}+T''_{comm}+T''_{comp}$, then $T''$ can be seen, for a fixed $k$,  as a function of $m$ and $m'_{group}$ ($T''=T''_k(m,m'_{group}))$. If we denote by $m_k$ and $m_k'_{group}$ the nubmer CPEs and the number of CGs grouped together to the $k$-means instance with fixed $k$, then the problem of allocating resources for all instances of the $k$-means problem, for $k\in\{1,2,\dots,n\}$ can be posed as a linear programming problem of choosing ($\{m_1,m_2,\dots,m_{n-1}\}$), with $m_i \in \{1,2,\dots,M\}$ and $\sum_{i=1}^{n-1}m_i \leq M$ ($M$ being a total number of CPEs) and $\{m_1'_{group}, m_2'_{group}, \dots, m_{n-1}'_{group}\}$ such that
+
+%$$\sum_{i=1}^{n-1} T''_i(m_i,m_i'_{group})$$
+
+%achieves minimum.
 
 
 
