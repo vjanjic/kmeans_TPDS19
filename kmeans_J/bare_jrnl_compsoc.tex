@@ -1058,20 +1058,22 @@ instance of $k$-means on $m$ CPEs and $m'_{group}$ CPE groups for each
 centroid. The scheduling problem can then be seen as the optimisation
 problem of finding the minimum of the function
 
-$$A(m_1,m_2,\dots,m_{n-1}, m_1'_{group}, m_2'_{group}, \dots
-m_{n-1}'_{group}) = \sum_{i_1}^{n-1} T''(i,m_i,m_i'_{group})$$
+$$A(m_1,\dots,m_{n-1}, m_1', \dots
+m_{n-1}') = \sum_{i_1}^{n-1} T''(i,m_i,m_i')$$
 
 with the constraints
 
 $$1 \leq m_i \leq p, \mbox{for } i \in \{1,\dots,n-1\},$$
 $$\sum_{i=1}^{n-1} m_i \leq p,$$
-$$0 \leq m_i'_{group} \leq \frac{p}{q}, mbox{for } i \in
+$$0 \leq m_i' \leq \frac{p}{q}, \mbox{for } i \in
 \{1,\dots,n-1\}$$
-$$ \sum_{i=1}^{n-1} m_i'_{group} = \frac{p}{q},$$
+$$ \sum_{i=1}^{n-1} m_i' = \frac{p}{q},$$
 where $p$ is the total number of CPEs and $q$ is the number of CPEs
-per group ($64$ in our case).
+per group ($64$ in our case). We use $T''=T''_{read]+T''_{comm}$ as a 
+cost function, where $T''_{read}$ and $T''_{comm}$ are given in the equations
+\ref{eq:tread} and \ref{eq:tcomm}.
 
-
+To solve the posed optimisation problem, we take the greedy approach. We initially allocate one CPE to each of the $n-1$ instances of the $k$-means algorithm and then, in successive iterations of assigning, we add one more CPE to the instance which has the highest cost until all of the CPEs are allocated. This, effectivelly, gives us the assignment of $m_1,m_2,\dots,m_{n-1}$. We repeat the similar procedure to assign $m'_1,\dots,m_{n-1}'$, assigning $1$ to each of them and then increasing them for the instances with the highest cost. Note that in this case, we cannot just assign arbitrary values to $m'$ - the value that is assigned for $m_i'$ depends on the level of allocation, as well as on the number of CPEs ($m_i$) allocated to that instance.
 
 
 
