@@ -1059,21 +1059,66 @@ centroid. The scheduling problem can then be seen as the optimisation
 problem of finding the minimum of the function
 
 $$A(m_1,\dots,m_{n-1}, m_1', \dots
-m_{n-1}') = \sum_{i_1}^{n-1} T''(i,m_i,m_i')$$
+m_{n-1}') = \sum_{i=1}^{n-1} T''(i,m_i,m_i')$$
 
-with the constraints
-
-$$1 \leq m_i \leq p, \mbox{for } i \in \{1,\dots,n-1\},$$
-$$\sum_{i=1}^{n-1} m_i \leq p,$$
-$$0 \leq m_i' \leq \frac{p}{q}, \mbox{for } i \in
-\{1,\dots,n-1\}$$
-$$ \sum_{i=1}^{n-1} m_i' = \frac{p}{q},$$
+\noindent
+with the following constraints: $1 \leq m_i \leq p \; (\mbox{for } i \in
+\{1,\dots,n-1\}), \sum_{i=1}^{n-1} m_i \leq p, 0 \leq m_i' \leq
+\frac{p}{q} \; (\mbox{for } i \in
+\{1,\dots,n-1\}), \sum_{i=1}^{n-1} m_i' = \frac{p}{q},$
 where $p$ is the total number of CPEs and $q$ is the number of CPEs
-per group ($64$ in our case). We use $T''=T''_{read]+T''_{comm}$ as a 
+per group ($64$ in our case). We use $T''(k,m,m')=T''_{read}(k,m,m')+T''_{comm}(k,m,m')$ as a 
 cost function, where $T''_{read}$ and $T''_{comm}$ are given in the equations
-\ref{eq:tread} and \ref{eq:tcomm}.
+\ref{eq:tread} and \ref{eq:tcomm}. Note that there will be additional
+constraints on the values that $m'$ can take, which will depend on
+$k$, $m$ and also the level of data partitioning.
 
-To solve the posed optimisation problem, we take the greedy approach. We initially allocate one CPE to each of the $n-1$ instances of the $k$-means algorithm and then, in successive iterations of assigning, we add one more CPE to the instance which has the highest cost until all of the CPEs are allocated. This, effectivelly, gives us the assignment of $m_1,m_2,\dots,m_{n-1}$. We repeat the similar procedure to assign $m'_1,\dots,m_{n-1}'$, assigning $1$ to each of them and then increasing them for the instances with the highest cost. Note that in this case, we cannot just assign arbitrary values to $m'$ - the value that is assigned for $m_i'$ depends on the level of allocation, as well as on the number of CPEs ($m_i$) allocated to that instance.
+The algorithm that we use to solve the posed optimisation problem is
+given in Algorithm~\ref{alg:resourceAllocAlg}, which is based on a
+greedy approach. We initially allocate one CPE and zero CPE groups to each of the $n-1$ instances
+of the $k$-means algorithm (lines 2--4). Then, in successive
+iterations, we add one more CPE to the instance which has the highest
+cost (therefore reducing its cost), until all of the CPEs are
+allocated (lines 6--9). This, effectivelly, gives us
+the assignment of $m_1,m_2,\dots,m_{n-1}$. We repeat the similar
+procedure to assign $m'_1,\dots,m_{n-1}'$ (lines 12--19).
+However, as noted above, we must take into account the
+constrants for the value of $m'$ when trying to increase it. For this
+purpose, we use the set $S$ to track downthe instances for which it
+is possible to improve the cost by adding more CPE groups. This set
+initially contains all instances (line 11), but when we discover that
+for some instance it is not impossible to increase $m'$ or that
+increasing it does not yield improvement in cost, we eliminate it from
+$S$ (line 17). 
+
+\begin{algorithm}
+\caption{Resource Allocation Algorithm}
+\label{alg:resourceAllocAlg}
+\begin{algorithmic}[1]
+  \STATE \textbf{INPUT:} Cost function $T''(k,m,m')$, number of CPEs
+  $p$, number of CPEs per group $q$, number of points $n$
+  \FOR {i=$1$ to $n-1$}
+  \STATE $m_i = 1$; $m'_i= 0$
+  \ENDFOR
+  \STATE remProc = $p - (n-1)$
+  \WHILE {remProc $>0$}
+  \STATE $i = \mbox{argmin}_{j=1}^{n-1} T''(j,m_j,m'_j)$
+  \STATE $m_i = m_i + 1$; remProc $=$ remProc $-1$
+  \ENDWHILE
+  \STATE remGroups = $\frac{p}{q}$
+  \STATE  $S = \{1,\dots,n-1\}$
+  \WHILE {(remGroups $>0$ and $|S|>0$)}
+  \STATE $i= \mbox{argmin}_{j=1, j \in S}^{n-1} T''(j,m_j,m'_j)$
+  \IF {$m'_i$ can be increased and $T''(i,m_i,m'_i)$ would be
+    decreased by that}
+  \STATE $m'_i = m'_i+1$; remGroups $=$ remGroups $-1$
+  \ELSE
+  \STATE $S = S \setminus \{i\}$
+  \ENDIF
+  \ENDWHILE
+  \STATE \textbf{OUTPUT:} $\{m_1,\dots,m_{n-1},m'_1, \dots, m'_{n-1}\}$
+\end{algorithmic}
+\end{algorithm}
 
 
 
