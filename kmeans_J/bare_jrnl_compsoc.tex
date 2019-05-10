@@ -1033,15 +1033,15 @@ In Section~\ref{background_J}, we described a method to determine the optimal nu
 A self-aware method to auto partition dataflow into 3 levels based on the targeting $k$ values. This method is mainly guided by the scalability of each level of data partitioning. Based on the limitations presented in formulations ($\mathbf{C}_1,\mathbf{C'}_1,\mathbf{C''}_1$) above, we can easy compute the range of possible $k$ values for each level: $k \leq \frac{LDM-d}{1+2d}$ for level-1, $k \leq \frac{64LDM-d}{1+2d}$ for level-2 and $k \leq \frac{m*LDM-d}{1+2d}$ for level-3. By concatenating the ranges, we obtain the self-aware 3-stage roofline model to guide the data partitioning as shown in figure~\ref{roofline}.
 
 \subsection{Fairness Resource Allocation and Task Scheduler}
-Dividing the resources of the supercomputer between the $n-1$
+Dividing the resources of a supercomputer between the $n-1$
 instances of the $k$-means algorithm can be looked at as a scheduling
 problem, where we need to schedule $n-1$ heterogeneous tasks on a
 given set of resources. The tasks are heterogeneous because, for
 different $k$, $k$-means algorithm will do different partitioning of
-the data (see the previous section), different degree of parallelism
-(more parallelism for larger values of $k$) and different
-computational costs. Therefore, dividing the resources optimally
-between the instances of the algorithm will be suboptimal.
+the data (see the previous section) which yields different degree of
+parallelism and different reading, computation and communication
+costs. Therefore, dividing the resources uniformly
+between the instances of the algorithm (tasks) will be suboptimal.
 Furthermore, it is not possible to statically
 compute the precise cost of executing one instance of the algorithm on
 a given set of resources because, in addition to the reading (equation
@@ -1052,10 +1052,13 @@ particular input, and this number cannot be computed
 statically. Therefore, we need to use some heuristics for resource
 allocation.
 
+We will focus on resource allocation for level-3 partitioning, as that
+is the most complex of the three cases we consider.
 The approach we take in this paper is to use a cost function,
 $T''(k,m,m'_{group})$, as an estimation of the cost of executing an
 instance of $k$-means on $m$ CPEs and $m'_{group}$ CPE groups for each
-centroid. The scheduling problem can then be seen as the optimisation
+centroid. For brievity, we will annotate $m'_{group}$ with $m'$.
+The scheduling problem can then be seen as the optimisation
 problem of finding the minimum of the function
 
 $$A(m_1,\dots,m_{n-1}, m_1', \dots
@@ -1065,23 +1068,30 @@ m_{n-1}') = \sum_{i=1}^{n-1} T''(i,m_i,m_i')$$
 with the following constraints: $1 \leq m_i \leq p \; (\mbox{for } i \in
 \{1,\dots,n-1\}), \sum_{i=1}^{n-1} m_i \leq p, 0 \leq m_i' \leq
 \frac{p}{q} \; (\mbox{for } i \in
-\{1,\dots,n-1\}), \sum_{i=1}^{n-1} m_i' = \frac{p}{q},$
+\{1,\dots,n-1\}), \sum_{i=1}^{n-1} m_i' = \frac{p}{q}, m_i' | m_i;
+(\mbox{for } i \in \{1,\dots,n-1\}$
 where $p$ is the total number of CPEs and $q$ is the number of CPEs
-per group ($64$ in our case). We use $T''(k,m,m')=T''_{read}(k,m,m')+T''_{comm}(k,m,m')$ as a 
+per group ($64$ in our case). Due to a way in which the data
+partitioning is done, we will require each $m$ to cover at least one
+core group, i.e. to be a multiple of 64\footnote{In other words, we
+  are really allocating core groups to tasks, rather than just
+  individual CPEs}. We use $T''(k,m,m')=T''_{read}(k,m,m')+T''_{comm}(k,m,m')$ as a 
 cost function, where $T''_{read}$ and $T''_{comm}$ are given in the equations
-\ref{eq:tread} and \ref{eq:tcomm}. Note that there will be additional
-constraints on the values that $m'$ can take, which will depend on
-$k$, $m$ and also the level of data partitioning.
+\ref{eq:tread} and \ref{eq:tcomm}. %Note that there will be additional
+%constraints on the values that $m'$ can take, which will depend on
+%$k$, $m$ and also the level of data partitioning.
 
 The algorithm that we use to solve the posed optimisation problem is
 given in Algorithm~\ref{alg:resourceAllocAlg}, which is based on a
-greedy approach. We initially allocate one CPE and zero CPE groups to each of the $n-1$ instances
+greedy approach. We initially allocate one CG and zero CG groups to each of the $n-1$ instances
 of the $k$-means algorithm (lines 2--4). Then, in successive
-iterations, we add one more CPE to the instance which has the highest
-cost (therefore reducing its cost), until all of the CPEs are
+iterations, we add one more CG to the instance which has the highest
+cost (therefore reducing its cost), until all of the CGs are
 allocated (lines 6--9). This, effectivelly, gives us
-the assignment of $m_1,m_2,\dots,m_{n-1}$. We repeat the similar
-procedure to assign $m'_1,\dots,m_{n-1}'$ (lines 12--19).
+the assignment of $m_1,m_2,\dots,m_{n-1}$ ($m_i$ will be the number of
+CGs allocated to the instance i multiplied by 64. We repeat the similar
+procedure to assign $m'_1,\dots,m_{n-1}'$ (lines 12--19), that is, to
+divide the CGs assigned to the instance $i$ into CG groups.
 However, as noted above, we must take into account the
 constrants for the value of $m'$ when trying to increase it. For this
 purpose, we use the set $S$ to track downthe instances for which it
@@ -1098,25 +1108,27 @@ $S$ (line 17).
   \STATE \textbf{INPUT:} Cost function $T''(k,m,m')$, number of CPEs
   $p$, number of CPEs per group $q$, number of points $n$
   \FOR {i=$1$ to $n-1$}
-  \STATE $m_i = 1$; $m'_i= 0$
+  \STATE $m_i = q$; $m'_i= 0$
   \ENDFOR
-  \STATE remProc = $p - (n-1)$
+  \STATE remProc = $p - (n-1) * q$
   \WHILE {remProc $>0$}
   \STATE $i = \mbox{argmin}_{j=1}^{n-1} T''(j,m_j,m'_j)$
-  \STATE $m_i = m_i + 1$; remProc $=$ remProc $-1$
+  \STATE $m_i = m_i + q$; remProc $=$ remProc $-q$
   \ENDWHILE
-  \STATE remGroups = $\frac{p}{q}$
-  \STATE  $S = \{1,\dots,n-1\}$
-  \WHILE {(remGroups $>0$ and $|S|>0$)}
-  \STATE $i= \mbox{argmin}_{j=1, j \in S}^{n-1} T''(j,m_j,m'_j)$
-  \IF {$m'_i$ can be increased and $T''(i,m_i,m'_i)$ would be
-    decreased by that}
-  \STATE $m'_i = m'_i+1$; remGroups $=$ remGroups $-1$
-  \ELSE
-  \STATE $S = S \setminus \{i\}$
-  \ENDIF
-  \ENDWHILE
-  \STATE \textbf{OUTPUT:} $\{m_1,\dots,m_{n-1},m'_1, \dots, m'_{n-1}\}$
+  \FOR {i=$1$ to $k$}
+  \ENDFOR 
+%  \STATE remGroups = $\frac{p}{q}$
+ % \STATE  $S = \{1,\dots,n-1\}$
+ % \WHILE {(remGroups $>0$ and $|S|>0$)}
+ % \STATE $i= \mbox{argmin}_{j=1, j \in S}^{n-1} T''(j,m_j,m'_j)$
+ %% \IF {$m'_i$ can be increased and $T''(i,m_i,m'_i)$ would be
+  %  decreased by that}
+  %\STATE $m'_i = m'_i+1$; remGroups $=$ remGroups $-1$
+  %\ELSE
+  %\STATE $S = S \setminus \{i\}$
+  %\ENDIF
+  %\ENDWHILE
+  %\STATE \textbf{OUTPUT:} $\{m_1,\dots,m_{n-1},m'_1, \dots, m'_{n-1}\}$
 \end{algorithmic}
 \end{algorithm}
 
