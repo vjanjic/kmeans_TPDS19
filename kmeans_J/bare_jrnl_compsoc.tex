@@ -409,16 +409,17 @@
 \author{Teng Yu,
         Wenlai Zhao,
         Pan Liu,
-        Shicai Wang,
-        Xiaohan Yan, \\
         Vladimir Janjic,
+        Xiaohan Yan,\\
+        Shicai Wang,
         Haohuan Fu,
         John Thomson
   %      ~\IEEEmembership{Life~Fellow,~IEEE}% <-this % stops a space
 \thanks{This work is an extended version of the paper 'Large-Scale Hierarchical K-Means for Heterogeneous Many-core Supercomputers' that appeared in the 2018 International Conference for High Performance Computing, Networking, Storage and Analysis (SC18) \cite{li2018large}. The additional content includes: 
-(i) An auto-learning layer to determine the optimal number of clusters targeting massively large-scale datasets without prior knowledge - Section~\ref{background_J}, Section~\ref{auto-implementation}.
-(ii) Experiments on massively gene expression datasets and outperforms the previous research~\cite{wang2014optimising} - Section~\ref{applications}. 
-(iii) Adding performance comparisons by Pflops with others approaches - Table 3. 
+(i) An auto evaluation function to determine the optimal number of clusters targeting datasets without prior knowledge - Section~\ref{background_J}. 
+(ii) The design and implementation of an auto-learning layer to handle massively large-scale datasets without prior knowledge on supercomputers. It contains an auto data partitiner and fairness resource allocation and scheduling method - Section~\ref{auto-implementation}.
+(iii) Experiments on an real application - massively gene expression datasets without prior knowledge. Our results outperforms the previous research~\cite{wang2014optimising} and demonstrates the efficiency of our evaluation function - Section~\ref{applications}. 
+%(iii) Adding performance comparisons by Pflops with others approaches - Table 3. 
 }  
 
 \IEEEcompsocitemizethanks
@@ -694,18 +695,18 @@ In this section, we provide a formal description of the $k$-$means$ problem and 
 
 
 \subsubsection{Problem Definition}
-The purpose of the $k$-$means$ clustering algorithm is to find a group of clusters to minimize the mean distances between samples and their nearest centroids. Formalized, given $n$ samples {$\mathcal{X}^d$} = \{$x^d_i$\} $\in$ $\mathds{R}^d$, $i \in \{1\ldots n\}$, where each sample is a $d$-dimensional vector $x^d_i$ = ($x_{i1}$,\ldots, $x_{id}$) and we use $u$ to index the dimensions: $u \in \{ 1\ldots d \}$. We aim to find $k$ $d$-dimensional centroids {$\mathcal{C}^d$} = \{$c^d_j$\} $\in$ $\mathds{R}^d$, $j \in \{1 \ldots k\}$ to minimize the object $\mathcal{O}$($\mathcal{C}$):
-$$  \mathcal{O}(\mathcal{C}) =    \frac{1}{n}\sum^{n}_{i=1} dis(x^d_i, c^d_{a(i)})   $$
+The purpose of the $k$-$means$ clustering algorithm is to find a group of clusters to minimize the mean distances between samples and their nearest centroids. Formalized, given $n$ samples $\mathcal{X}^d$ = \{$x^d_i$ \mid x^d_i $\in$ $\mathds{R}^d$, $i \in \{1,\dots, n\}\}$, where each sample is a $d$-dimensional vector $x^d_i$ = ($x_{i1}$,\ldots, $x_{id}$) and we use $u$ to index the dimensions: $u \in \{ 1\ldots d \}$. We aim to find $k$ $d$-dimensional centroids $\mathcal{C}^d = \{$c^d_j$ \mid c^d_j $\in$ $\mathds{R}^d$, $j \in \{1 \ldots k\}\}$ to minimize the object $\mathcal{O}$($\mathcal{C}$):
+$$  \mathcal{O}(\mathcal{C}) =    \frac{1}{n}\sum^{n}_{i=1} \mbox{dis}(x^d_i, c^d_{a(i)})   $$
 Where $a(i)$ is the index of the nearest centroid for sample $x^d_i$:
-$$ \ \ \ \ \ \ \ \ \ a(i)= arg\ min_{j\in \{1 \ldots k \} } dis({x^d_i}, c^d_j) $$
+$$ \ \ \ \ \ \ \ \ \ a(i)= arg\ min_{j\in \{1 \ldots k \} } \mbox{dis}({x^d_i}, c^d_j) $$
 while $dis(x^d_i, c^d_j)$ is the $Euclidean$ distance between sample $x^d_i$ and centroid $c^d_j$:
-$$ \ \ \ \ \ \ dis(x^d_i, c^d_j) = \sum^{d}_{u=1}(x_{iu}-c_{ju})^2 $$
+$$ \ \ \ \ \ \ \mbox{dis}(x^d_i, c^d_j) = \sqrt{\sum^{d}_{u=1}(x_{iu}-c_{ju})^2} $$
 
 \subsubsection{Lloyd Algorithm}
 It is well-known that $k$-means problem is in NP-hard \cite{newling2016nested}. In the literature, several methods have been proposed to find efficient solutions \cite{newling2016fast,newling2016nested,ding2015yinyang,curtin2017dual,shen2017compressed,bottesch2016speeding}. While the most popular baseline is still the $Lloyd$ algorithm \cite{lloyd1982least}, which is composed by repeating the basic two steps below:
 $$1.:\ a(i) = arg\ min_{j\in \{1 \ldots k \} }\ dis({x^d_i}, c^d_j)\ (Assign)$$
 $$2.:\ c^d_j = \frac{\sum_{arg\ a(i)=j}x^d_i}{| arg\ a(i)=j |}\ \ \ \ (Update) $$
-Note that those notations here are mainly from previous works by Hamerly \cite{hamerly2010making}, Newling and Fleuret \cite{newling2016fast}. We will apply customized notations only when needed. 
+We also need to chose an initial set of centroids. Note that those notations here are mainly from previous works by Hamerly \cite{hamerly2010making}, Newling and Fleuret \cite{newling2016fast}. We will apply customized notations only when needed. 
 The first step above is to assign each sample into the nearest centroid according to the $Euclidean$ distance. The second step is to update the centroids by moving them to the mean of their assigned samples in the $d$-dimensional vector space. Those two steps are repeated until each $c^d_j$ is fixed. %The pseudo-code is shown in Algorithm 1.
 
 %\documentclass[UTF8]{ctexart}
@@ -766,16 +767,22 @@ Chen, et al. \cite{chen2018improved} recently presented a method without any pre
 While this formulation didn't work in large-scale cases as it keeps monotonous increasing when the $k$ is greater than 2.
 
 To solve this problem with a supercomputing-based approach, we introduce the notion of cluster radius $r(k)$ to $k$-$means$ clustering. To be specific, $r(k)$ is defined to be the smallest non-negative real number such that the sample set $\mathcal{X}^d$ can be covered by $k$ closed balls centered at sample points with radius $r(k)$. In other words,
+%\[
+%r(k) = \inf\{t: \exists x_{j_1}, \ldots, x_{j_k} \text{in } \mathcal{X}^d, %\mathcal{X}^d\subseteq \bigcup_{1\leq s\leq k} B(x_{j_s}, t)\},
+%\]
 \[
-r(k) = \inf\{t: \exists x_{j_1}, \ldots, x_{j_k} \text{in } \mathcal{X}^d, \mathcal{X}^d\subseteq \bigcup_{1\leq s\leq k} B(x_{j_s}, t)\},
+r(k) = \inf\{t: \exists y_1, \ldots, y_k \text{ in } R^d, \mathcal{X}^d\subseteq \bigcup_{1\leq s\leq k} B(y_s, t)\},
 \]
-where $B(x_{j_s}, t)$ stands for the Euclidean closed ball centered at $x_{j_s}$ with radius $t$. For instance, when $k = n$ the number of samples, we have $r(n) = 0$. It is easy to see that $r(k)$ is non-increasing with respect to $k$.
+where $B(y_s, t)$ stands for the Euclidean closed ball centered at $y_s$ with radius $t$. For instance, when $k = n$ the number of samples, we have $r(n) = 0$. It is easy to see that $r(k)$ is non-increasing with respect to $k$.
+Radius has been widely used in clustering problems, such as approximating clustering~\cite{badoiu2002approximate} and incremental clustering~\cite{charikar2004incremental}, but not on $k$-$means$, because it is impossible to compute and measure all possible radius values on large-scale datasets. For $n$ samples clustering into $k$ centroids, there will be $O(n^k)$ possible solutions. 
 
-Radius has been widely used in clustering problems, such as approximating clustering~\cite{badoiu2002approximate} and incremental clustering~\cite{charikar2004incremental}, but not on $k$-$means$, because it is impossible to compute and measure all different radius values on large-scale datasets without help of modern supercomputer with efficient parallel processing techniques. The idea of determining the best $k$ is by measuring the rate of change of $r(k)$ with respect to $k$. If $r(k)$ does not shrink drastically as $k$ goes up by 1, we would regard this $k$ as a satisfying one. Rigorously speaking, let
+With the support of modern supercomputer with efficient parallel processing techniques, we apply an empirical way by using a minim radius from a random selection of solutions with $k$ centroids, named $r'(k)$ to represent the $r(k)$. With the increasing of $k$, the accurate of $r'(k)$ will decrease. The $r'(k)$ will even increase at some point when it is too difficult to give a show a reasonable representation of $r(k)$ by $r'(k)$ from a limited selection of solutions. This also indicates that to keep increasing the targeted centroids ($k$) beyond this points becomes meaningless as it cannot easily reduce the distance and distinguish the difference from different clusters.
+So the idea of determining the best $k$ is by measuring the change of $r'(k)$ with respect to $r(k)$. If $r'(k)$ does not keep the same route of $r(k)$, we would regard this $k$ as a satisfying choice. Rigorously speaking, let
 \[
-\Delta r(k) = r(k) - r(k+1).
+\Delta r'(k) = r'(k) - r'(k+1),
 \]
-Then our optimal $k$ is taken as the integer minimizing this non-negative function $\Delta r$.
+%then our optimal $k$ is taken as the integer minimizing this non-negative function $\Delta r$.
+then our optimal $k$ is taken as the first time this function $\Delta r'$ increasing.
 
 %We applied this state-of-the-art approach to determine the optimal $k$ value when clustering massive datasets without prior knowledge. 
 %We will illustrate how we handle those steps efficiently in detail in the next section.
@@ -1005,7 +1012,7 @@ Considering performance, note that $m'_{group}$ CGs (64 CPEs in each) in one gro
 %$$\mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B$$
 \begin{equation}
   \label{eq:tread}
-  $$\mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B
+  \mathbf{T''}_{read}:\ \ \ (\frac{n*d*m'_{group}}{m}+\frac{k}{m'_{group}}*\frac{d}{64})/B
 \end{equation}
 
 
@@ -1025,9 +1032,11 @@ As described in the background section,  \textit{Level 1} is based on the well-r
 
 The multi-level large-scale approaches together also give us the needed flexibility to handle both high dimensional and low dimensional dataset efficiently on supercomputer, which also breaks the limitation in current state-of-the-art design by Bender et al. \cite{bender2015k} which claims only efficient for dataset with larger than 100,000 dimensions. 
 
-\section{Auto-clustering Layer Design and Implementation}\label{auto-implementation}
+\section{Determining The Optimal Targeted Centroids Without Prior Knowledge of Data}\label{auto-implementation}
 
-In Section~\ref{background_J}, we described a method to determine the optimal number of centroids ($k$) for the $k$-means algorithm on a given input set. This method is very useful in limited-resources settings, where we cannot run multiple instances of the $k$-means algorithm (for different $k$), but instead we need to determine the value of $k$ upfront. However, the method is still computationally expensive and, in the supercomputer settings, we have enough resources to run $n$ instances of $k$-means algorithm in parallel (for $k \in \{1,2,\dots,n\}$. We can then use a function similar to the one proposed in Section~\ref{background_J} for calculating radius $r(k)$ as an evaluation function to estimate the quality of solution that each instance of the $k$-means algorithm derives. This leaves us with two practical problems - how to automatically select the data partitioning method to process the workload when the value of $k$ changes and how to allocate resources of a supercomputer fo different instances of the $k$-means algorithm.
+In Section~\ref{background_J}, we described the method to determine the optimal number of centroids ($k$) for the $k$-means algorithm on a given input set. 
+%This method is very useful in limited-resources settings, where we cannot run multiple instances of the $k$-means algorithm (for different $k$), but instead we need to determine the value of $k$ upfront. However, the method is still computationally expensive as it requires computing a $k$-radius without knowing the set of centroids, hence it may require considering every combination of $k$ points from the input set. In the supercomputer settings, we have enough resources to run $n-1$ instances of $k$-means algorithm in parallel (for $k \in \{1,2,\dots,n-1\}$. We can then use an evaluation function, described in Section~\ref{sec:evalFunc} and based on the $k$-radius function from  Section~\ref{background_J} to estimate the quality of the solutions that each instance of the $k$-means algorithm derives. 
+To efficiently implement it and process massive data without prior knowledge, it leaves us with two practical problems - how to automatically select the data partitioning method to process the workload when the value of $k$ changes and how to allocate resources of a supercomputer for different instances of the $k$-means algorithm.
 %To efficiently process massive data without prior knowledge, we need an auto-learning layer to determine the optimal value of targeting centroids ($k$). Instead of predicting the optimal value before execution under limited computing resources, our supercomputing based large-scale approach can process all possible $k$ values in parallel within a reasonable time and then determine the actual optimal value by our evaluation function. In detail, we design and implement: 
 \subsection{Self-aware Auto Dataflow Partition} 
 A self-aware method to auto partition dataflow into 3 levels based on the targeting $k$ values. This method is mainly guided by the scalability of each level of data partitioning. Based on the limitations presented in formulations ($\mathbf{C}_1,\mathbf{C'}_1,\mathbf{C''}_1$) above, we can easy compute the range of possible $k$ values for each level: $k \leq \frac{LDM-d}{1+2d}$ for level-1, $k \leq \frac{64LDM-d}{1+2d}$ for level-2 and $k \leq \frac{m*LDM-d}{1+2d}$ for level-3. By concatenating the ranges, we obtain the self-aware 3-stage roofline model to guide the data partitioning as shown in figure~\ref{roofline}.
@@ -1059,7 +1068,7 @@ $T''(k,m,m'_{group})$, as an estimation of the cost of executing an
 instance of $k$-means on $m$ CPEs and $m'_{group}$ CPE groups for each
 centroid. For brievity, we will annotate $m'_{group}$ with $m'$.
 The scheduling problem can then be seen as the optimisation
-problem of finding the minimum of the function
+problem of finding the minimum of the function:
 
 $$A(m_1,\dots,m_{n-1}, m_1', \dots
 m_{n-1}') = \sum_{i=1}^{n-1} T''(i,m_i,m_i')$$
@@ -1089,17 +1098,7 @@ iterations, we add one more CG to the instance which has the highest
 cost (therefore reducing its cost), until all of the CGs are
 allocated (lines 6--9). This, effectivelly, gives us
 the assignment of $m_1,m_2,\dots,m_{n-1}$ ($m_i$ will be the number of
-CGs allocated to the instance i multiplied by 64. We repeat the similar
-procedure to assign $m'_1,\dots,m_{n-1}'$ (lines 12--19), that is, to
-divide the CGs assigned to the instance $i$ into CG groups.
-However, as noted above, we must take into account the
-constrants for the value of $m'$ when trying to increase it. For this
-purpose, we use the set $S$ to track downthe instances for which it
-is possible to improve the cost by adding more CPE groups. This set
-initially contains all instances (line 11), but when we discover that
-for some instance it is not impossible to increase $m'$ or that
-increasing it does not yield improvement in cost, we eliminate it from
-$S$ (line 17). 
+CGs allocated to the instance $i$ multiplied by $q$ (64 in our case). Once we have decided on the number of CGs for instances, we divide these CGs into CG groups, finding, for each instance, the grouping that minimised $T''$ (line 11). This gives us the assignment of $m'_1,m'_2,\dots,m'_k$.
 
 \begin{algorithm}
 \caption{Resource Allocation Algorithm}
@@ -1116,7 +1115,9 @@ $S$ (line 17).
   \STATE $m_i = m_i + q$; remProc $=$ remProc $-q$
   \ENDWHILE
   \FOR {i=$1$ to $k$}
+  \STATE $m'_i = \mbox{argmin}_{j=1}^{m_i,j|m_i} T''(i,m_i,j)$
   \ENDFOR 
+  \STATE \textbf{OUTPUT:} $\{m_1,\dots,m_{n-1},m'_1, \dots, m'_{n-1}\}$
 %  \STATE remGroups = $\frac{p}{q}$
  % \STATE  $S = \{1,\dots,n-1\}$
  % \WHILE {(remGroups $>0$ and $|S|>0$)}
@@ -1154,8 +1155,9 @@ $S$ (line 17).
     
 %To achieve efficient resource allocation, we apply empirical approach to determine the number of reserved processors (from only several CPEs in one core group to even multiple distributed nodes) for each task. We launch tasks to processors proportional to their targeting number of centroids ($k$) to keep load balancing. For example, a group of processors will only launch one task if its $k = \frac{n}{2}$, while tasks with $k = n-1$ and $k=2$ will be launched to another group of processors.
 
-\subsection{Evaluation Function}
-A correct evaluation function to determine the optimal $k$.
+%\subsection{Evaluation Function}
+%\label{sec:evalFunc}
+%A correct evaluation function to determine the optimal $k$.
 
 
 %(1) A self-aware method to auto partition dataflow into 3 levels based on the targeting $k$ values; (2) A fairness resource allocation method to run the heterogeneous workflows on the many-core supercomputer in parallel and keep load balancing; (3) A correct evaluation function to determine the optimal $k$.  
@@ -1199,6 +1201,8 @@ We do not describe the more detailed technical and background descriptions of th
     US Census 1990 &2.5E6 &10,000 &68 \\
     \hline
     ILSVRC2012 (ImgNet) &1.3E6 &160,000 &196,608 \\
+    \hline
+    ONCOLOGY and LEukemia &4.3E3 & unknown &54,675 \\
 %    ILSVRC2012 &8.1E6 &1000 &4096 \\
 %    RCV1 &1.9E5 &103 &1979  \\
     \hline
@@ -1312,7 +1316,7 @@ Figure \ref{sn} shows how both Level 2 and Level 3 scale across an increasing nu
   \caption{Execution time comparison with other architectures}
   \center
   \label{ccpu}
-   \begin{tabular}{p{2cm} p{3.2cm} p{1cm} p{1cm}p{0.5cm}p{2cm}p{3cm}p{1cm}p{1cm} c c c c c c c }
+   \begin{tabular}{p{2.5cm} p{3.2cm} p{1cm} p{1cm}p{0.5cm}p{2cm}p{3cm}p{1cm}p{1cm} c c c c c c c }
  % \begin{tabular}{l c c c c}
     \hline
     Approaches&Hardware Resources &n & k & d& Execution time per iteration (sec.) & Execution time per iteration by Sunway TaihuLight (sec.) & Max. Speedup\\
@@ -1380,14 +1384,22 @@ Genomic information from gene expression data has been widely used and already b
 
 To demonstrate the advantage from our large-scale $k$-$means$ algorithm on Sunway TaihuLight supercomputer targeting this application, we test on the same datasets (MULTMYEL) \cite{genedata} with the previous work \cite{wang2014optimising} and compare the performance. There are 559 subjects and each subject has 54675 probesets. In this problem definition, we cluster the whole dataset, where $n$ is 559, $d$ is 54675 and $k$ is from 5 to 80 (the range tested on the previous work). The previous work applied hierarchical clustering and run on 32 CPU cores by a single VM, while our approach applies our level-3 partitioning and run a single CG with 64 CPEs. The performance of our approach against this work is shown in figure~\ref{compare_g}. We present the performance on execution time on difference number of centroids. We achieve a dramatic speedup on total execution time from 198x on $k$=5 to up-to 18000x on $k$=80. 
 
-We further apply the auto-clustering evaluation function to determine the optimal value of $k$. The results is shown in figure~\ref{}.
+We further apply the auto-clustering evaluation function to determine the optimal value of $k$. The results is shown in figure~\ref{radius}. It is clear that beyond $k=14$, the $r'(k)$ reaches its first ever increasing and then fluctuate. After this point, $r'(k)$ fluctuates around a certain value and indicates continually increases the $k$ values cannot further represent the difference between the input data, which demonstrates the efficiency of our design. 
 
 \begin{figure}
 \centering
-\includegraphics[scale=0.50]{compare.png}
+\includegraphics[scale=0.50]{figures/compare.png}
 \caption{ Speedup on total execution time for gene expression dataset MULTMYEL \cite{genedata} against a previous hierarchical clustering approach \cite{wang2014optimising}.
 }
 \label{compare_g}
+\end{figure}
+
+\begin{figure}
+\centering
+\includegraphics[scale=0.50]{figures/min_radius_80.png}
+\caption{ The evaluation function $r'(k)$ to determine the optimal $k$ value.
+}
+\label{radius}
 \end{figure}
 
 \section{Conclusions}
